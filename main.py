@@ -2,8 +2,14 @@ import argparse
 import os
 import sys
 import logging
+import itertools
+import zipfile
+import io
+import hashlib
+from multiprocessing import Pool, cpu_count, freeze_support
+from tqdm import tqdm 
 
-# Logging Configuration
+#Config
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - [%(levelname)s] - %(message)s',
@@ -11,65 +17,94 @@ logging.basicConfig(
 )
 logger = logging.getLogger("FindMissingBytes")
 
-def configure_cli():
+def solve_chunk(args):
     """
-    Configures and parses command-line arguments.
+    Worker function executed by each CPU core.
     """
-    parser = argparse.ArgumentParser(
-        description="FindMissingBytes: Tool for repairing truncated ZIP archives."
-    )
+    broken_data, prefix_tuple, missing_len, expected_hash = args
     
-    # Path to the file
-    parser.add_argument(
-        "filename", 
-        type=str, 
-        help="Path to the truncated/broken ZIP archive."
-    )
+    remaining_len = missing_len - len(prefix_tuple)
     
-    # Expected Hash (SHA256)
-    parser.add_argument(
-        "expected_hash", 
-        type=str, 
-        help="The expected SHA256 hash of the extracted file."
-    )
-
-    return parser.parse_args()
-
-def validate_environment(args):
-    """
-    Validates the input arguments.
-    Returns True or False.
-    """
-    
-    # Check : Does the file exist?
-    if not os.path.exists(args.filename):
-        logger.error(f"File not found: {args.filename}")
-        return False
+    for suffix in itertools.product(range(256), repeat=remaining_len):
         
-    # Check : Is the file empty?
-    if os.path.getsize(args.filename) == 0:
-        logger.error(f"File {args.filename} is empty (0 bytes).")
-        return False
-
-    # Check : Is the hash length correct? 
-    if len(args.expected_hash) != 64:
-        logger.warning(f"Warning: The provided hash has {len(args.expected_hash)} characters.")
-
-    logger.info("Validatin successful. Inputs are ready.")
-    return True
+        full_tail_tuple = prefix_tuple + suffix
+        tail_bytes = bytes(full_tail_tuple)
+        
+        candidate_data = broken_data + tail_bytes
+        
+        virtual_file = io.BytesIO(candidate_data)
+        
+        try:
+            with zipfile.ZipFile(virtual_file, 'r') as zf:
+                
+                if zf.testzip() is not None:
+                    continue
+                
+                target_name = zf.namelist()[0]
+                with zf.open(target_name) as f:
+                    content = f.read()
+                    current_hash = hashlib.sha256(content).hexdigest()
+                    
+                    if current_hash == expected_hash:
+                        return tail_bytes
+                        
+        except (zipfile.BadZipFile, RuntimeError):
+            continue
+            
+    return None
 
 def main():
-    logger.info("=== FindMissingBytes Start ===")
+    freeze_support()
     
-    args = configure_cli()
+    parser = argparse.ArgumentParser(description="FindMissingBytes: Parallel ZIP Repair Tool")
+    parser.add_argument("filename", help="Path to broken ZIP")
+    parser.add_argument("expected_hash", help="SHA256 of the valid extracted file")
+    parser.add_argument("--bytes", type=int, default=4, help="Number of missing bytes to guess (Default: 4)")
     
-    if not validate_environment(args):
-        logger.error("Forced exit due to validation errors.")
+    args = parser.parse_args()
+    
+    #Validation
+    if not os.path.exists(args.filename):
+        logger.error("File not found.")
         sys.exit(1)
 
-    logger.info(f"Target File: {args.filename}")
-    logger.info(f"Expected Hash: {args.expected_hash}")
-    logger.info("System ready for Phase 2 (Truncation Simulation).")
+    logger.info(f"Loading {args.filename} into RAM...")
+    with open(args.filename, 'rb') as f:
+        broken_data = f.read()
+    
+    MISSING_LEN = args.bytes
+    logger.info(f"Attempting to brute-force {MISSING_LEN} bytes.")
+    logger.info(f"CPU Cores available: {cpu_count()}")
+    
+    # Format: (data, (start_byte,), total_len, target_hash)
+    tasks = [
+        (broken_data, (start_byte,), MISSING_LEN, args.expected_hash) 
+        for start_byte in range(256)
+    ]
+    
+    logger.info("Starting Parallel Engine... (Press Ctrl+C to abort)")
+    
+    found_tail = None
+    
+    with Pool(processes=cpu_count()) as pool:
+        for result in tqdm(pool.imap_unordered(solve_chunk, tasks), total=len(tasks), unit="chunk"):
+            if result:
+                found_tail = result
+                pool.terminate() 
+                break
+    
+    if found_tail:
+        print("\n" + "="*40)
+        logger.info(f"SUCCES! MATCH FOUND.")
+        logger.info(f"Recovered Bytes (Hex): {found_tail.hex()}")
+        
+        recovered_filename = "recovered_" + os.path.basename(args.filename)
+        with open(recovered_filename, 'wb') as f:
+            f.write(broken_data + found_tail)
+        logger.info(f"Saved recovered archive to: {recovered_filename}")
+        print("="*40)
+    else:
+        logger.error("Failed to find the missing bytes.")
 
 if __name__ == "__main__":
     main()
