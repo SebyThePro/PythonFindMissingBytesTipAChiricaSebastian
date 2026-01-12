@@ -1,0 +1,49 @@
+FindMissingByte de Chirica Sebastian 3B4
+
+Proiectul facut de mine ofera o metoda de a reconstrui zip-uri corupte prin trunchiere 
+folosind un algoritm de brute force si multiprocessing. Validarea e facuta prin verificarea integritatii
+structurale a arhivei si prin compararea Hash ului SHA256 al fisierelor extrase.
+Proiectul prezinta utilizarea eficienta a resursellor hardware , manipularea binara a fisierelor si
+lucrul cu date cripto in Python.
+
+Comenzi importante:
+-<<python create_broken_archive.py valid.zip 4>> <-la final este numarul de biti taiati . In functie de
+numar , timpul de procesare poate sa creasca drastic. Momentan 4 biti e un numar bun pentru a 
+demonstra functionalitatea proiectului mai ales pe fisiere cu dimensiuni mari unde numarul de incercari 
+la brute force poate sa treaca la niste numere nerealistice.
+
+-<<python -c "import zipfile; print(zipfile.ZipFile('broken.zip').namelist())">>
+Deoarece programe ca winrar si 7zip iti repara arhiva automat cand o deschizi in windows , eu nu pot sa imi 
+dau seama ca generatorul de arhive stricate a functionat cum trebuie , asa ca folosesc aceasta comanda pentru
+a fi sigur .
+
+-<<python main.py broken.zip <HASHUL GENERAT DE COMANDA DE LA INCEPUT> --bytes 4>> 
+Repara arhiva calculant bitii lipsa 
+Valideaza logica de brute force
+
+zipfile
+https://docs.python.org/3/library/zipfile.html 
+-testarea integritatii fisierelor zip
+Functii importante: ZipFile(),testzip(),namelist() 
+
+multiprocessing
+https://docs.python.org/3/library/multiprocessing.html
+https://www.youtube.com/watch?v=EI1gLCvdX_U
+https://www.youtube.com/watch?v=X7vBbelRXn0
+https://www.youtube.com/watch?v=fKl2JW_qrso
+-Pentru rularea codului pe mai multe nuclee de procesor in acelasi timp
+Functii importante: Pool(),cpu_count(),imapunordered()
+
+itertools
+https://docs.python.org/3/library/itertools.html
+www.youtube.com/watch?v=Qu3dThVy6KQ
+-Se ocupa cu generarea secventelor matematice ca produsul cartezian eficient . Util pentru brute force. 
+Functii importante: product()
+
+hashlib
+Se asigura folosing SHA256 ca datele recuperate sunt bune .
+https://docs.python.org/3/library/hashlib.html
+
+Misc:
+https://www.youtube.com/watch?v=goOa3DGezUA <-despre structura zip
+https://en.wikipedia.org/wiki/ZIP(file_format)
