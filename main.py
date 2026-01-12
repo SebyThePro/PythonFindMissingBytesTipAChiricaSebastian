@@ -48,7 +48,7 @@ def solve_chunk(args):
                     if current_hash == expected_hash:
                         return tail_bytes
                         
-        except (zipfile.BadZipFile, RuntimeError):
+        except (zipfile.BadZipFile, RuntimeError, ValueError):
             continue
             
     return None
